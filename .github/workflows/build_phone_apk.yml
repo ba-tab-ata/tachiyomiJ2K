@@ -21,7 +21,7 @@ jobs:
           git checkout 7ffecc7505675e0c98e633fee5ff5c289e932d58
           git apply "$RUNNER_TEMP/page-number.patch"
           # JitPack no longer serves the two archived adapter modules.
-          sed -i "s/com.github.arkon.FlexibleAdapter:flexible-adapter:c8013533/eu.davidea:flexible-adapter:5.1.0/; s/com.github.arkon.FlexibleAdapter:flexible-adapter-ui:c8013533/eu.davidea:flexible-adapter-ui:5.1.0/" app/build.gradle.kts
+          sed -i "s/com.github.arkon.FlexibleAdapter:flexible-adapter:c8013533/eu.davidea:flexible-adapter:5.1.0/; s/com.github.arkon.FlexibleAdapter:flexible-adapter-ui:c8013533/eu.davidea:flexible-adapter-ui:1.0.0/" app/build.gradle.kts
 
       - name: Set up Java
         uses: actions/setup-java@v4
