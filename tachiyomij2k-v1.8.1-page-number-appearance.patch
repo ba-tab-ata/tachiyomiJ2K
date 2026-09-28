@@ -141,7 +141,7 @@ index c2a8962..94d0961 100644
 -    }
  }
 diff --git a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt
-index e9130dc..dc64ec9 100644
+index e9130dc..824f506 100644
 --- a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt
 +++ b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt
 @@ -251,6 +251,48 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
@@ -256,7 +256,7 @@ index e9130dc..dc64ec9 100644
 +            if (hasExtraPage) {
 +                (if (firstPageOnLeft) page.number else page.number + 1).toString()
 +            } else {
-+                "${page.number}${if (page.firstHalf == false) "*" else ""}"
++                page.number.toString()
 +            }
 +        binding.pageNumberRight.text =
 +            if (hasExtraPage) (if (firstPageOnLeft) page.number + 1 else page.number).toString() else ""
