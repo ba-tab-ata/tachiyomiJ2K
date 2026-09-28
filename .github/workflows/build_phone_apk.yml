@@ -1,0 +1,41 @@
+name: Build page number APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source and patch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply page number changes to v1.8.1
+        run: |
+          git show HEAD:tachiyomij2k-v1.8.1-page-number-appearance.patch > "$RUNNER_TEMP/page-number.patch"
+          git checkout 7ffecc7505675e0c98e633fee5ff5c289e932d58
+          git apply "$RUNNER_TEMP/page-number.patch"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build separately installable APK
+        run: ./gradlew assembleStandardDebug
+
+      - name: Make APK downloadable
+        uses: actions/upload-artifact@v4
+        with:
+          name: tachiyomij2k-custom-debug-apk
+          path: app/build/outputs/apk/standard/debug/*universal*.apk
+          if-no-files-found: error
