@@ -1,0 +1,474 @@
+diff --git a/.github/workflows/build_custom_apk.yml b/.github/workflows/build_custom_apk.yml
+new file mode 100644
+index 0000000..484d0c8
+--- /dev/null
++++ b/.github/workflows/build_custom_apk.yml
+@@ -0,0 +1,38 @@
++name: Build customized APK
++
++on:
++  push:
++    branches:
++      - custom-page-number
++  workflow_dispatch:
++
++permissions:
++  contents: read
++
++jobs:
++  build:
++    runs-on: ubuntu-24.04
++    steps:
++      - name: Check out source
++        uses: actions/checkout@v4
++        with:
++          fetch-depth: 0
++
++      - name: Set up Java
++        uses: actions/setup-java@v4
++        with:
++          distribution: temurin
++          java-version: '21'
++
++      - name: Set up Gradle
++        uses: gradle/actions/setup-gradle@v4
++
++      - name: Build separately installable APK
++        run: ./gradlew assembleStandardDebug
++
++      - name: Make APK downloadable
++        uses: actions/upload-artifact@v4
++        with:
++          name: tachiyomij2k-custom-debug-apk
++          path: app/build/outputs/apk/standard/debug/*universal*.apk
++          if-no-files-found: error
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/data/preference/PreferencesHelper.kt b/app/src/main/java/eu/kanade/tachiyomi/data/preference/PreferencesHelper.kt
+index 49b1e55..700e8d2 100644
+--- a/app/src/main/java/eu/kanade/tachiyomi/data/preference/PreferencesHelper.kt
++++ b/app/src/main/java/eu/kanade/tachiyomi/data/preference/PreferencesHelper.kt
+@@ -145,6 +145,28 @@ class PreferencesHelper(
+ 
+     fun showPageNumber() = flowPrefs.getBoolean(Keys.showPageNumber, true)
+ 
++    private fun pageNumberAppearanceKey(doublePage: Boolean, property: String) =
++        "page_number_${if (doublePage) "double" else "single"}_$property"
++
++    fun pageNumberSize(doublePage: Boolean) = flowPrefs.getInt(pageNumberAppearanceKey(doublePage, "size"), 12)
++
++    fun pageNumberPosition(doublePage: Boolean) =
++        flowPrefs.getInt(pageNumberAppearanceKey(doublePage, "position"), if (doublePage) 7 else 8)
++
++    fun pageNumberOffsetX(doublePage: Boolean) = flowPrefs.getInt(pageNumberAppearanceKey(doublePage, "offset_x"), 0)
++
++    fun pageNumberRightOffsetX() = flowPrefs.getInt(pageNumberAppearanceKey(true, "right_offset_x"), 0)
++
++    fun pageNumberOffsetY(doublePage: Boolean) = flowPrefs.getInt(pageNumberAppearanceKey(doublePage, "offset_y"), 0)
++
++    fun pageNumberStrokeWidth(doublePage: Boolean) = flowPrefs.getInt(pageNumberAppearanceKey(doublePage, "stroke_width"), 4)
++
++    fun pageNumberTextColor(doublePage: Boolean) =
++        flowPrefs.getString(pageNumberAppearanceKey(doublePage, "text_color"), "#EBEBEB")
++
++    fun pageNumberStrokeColor(doublePage: Boolean) =
++        flowPrefs.getString(pageNumberAppearanceKey(doublePage, "stroke_color"), "#2D2D2D")
++
+     fun fullscreen() = flowPrefs.getBoolean(Keys.fullscreen, true)
+ 
+     fun keepScreenOn() = flowPrefs.getBoolean(Keys.keepScreenOn, true)
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/PageIndicatorTextView.kt b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/PageIndicatorTextView.kt
+index c2a8962..94d0961 100644
+--- a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/PageIndicatorTextView.kt
++++ b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/PageIndicatorTextView.kt
+@@ -7,6 +7,7 @@ import android.text.Spannable
+ import android.text.SpannableString
+ import android.text.style.ScaleXSpan
+ import android.util.AttributeSet
++import android.util.TypedValue
+ import androidx.appcompat.widget.AppCompatTextView
+ import eu.kanade.tachiyomi.widget.OutlineSpan
+ 
+@@ -17,8 +18,18 @@ class PageIndicatorTextView(
+     context: Context,
+     attrs: AttributeSet? = null,
+ ) : AppCompatTextView(context, attrs) {
++    private var pageText: CharSequence? = null
++    private var outline: OutlineSpan? = OutlineSpan(Color.rgb(45, 45, 45), 4f)
++
+     init {
+-        setTextColor(fillColor)
++        setTextColor(Color.rgb(235, 235, 235))
++    }
++
++    fun setAppearance(sizeSp: Int, textColor: Int, strokeColor: Int, strokeWidthPx: Int) {
++        setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp.toFloat())
++        setTextColor(textColor)
++        outline = if (strokeWidthPx > 0) OutlineSpan(strokeColor, strokeWidthPx.toFloat()) else null
++        pageText?.let { setText(it, BufferType.NORMAL) }
+     }
+ 
+     @SuppressLint("SetTextI18n")
+@@ -28,13 +39,14 @@ class PageIndicatorTextView(
+     ) {
+         // Add spaces at the start & end of the text, otherwise the stroke is cut-off because it's
+         // not taken into account when measuring the text (view's padding doesn't help).
++        pageText = text
+         val currText = " $text "
+ 
+         // Also add a bit of spacing between each character, as the stroke overlaps them
+         val finalText =
+             SpannableString(currText.asIterable().joinToString("\u00A0")).apply {
+                 // Apply text outline
+-                setSpan(spanOutline, 1, length - 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
++                outline?.let { setSpan(it, 1, length - 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE) }
+ 
+                 for (i in 1..lastIndex step 2) {
+                     setSpan(ScaleXSpan(0.2f), i, i + 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+@@ -43,16 +55,4 @@ class PageIndicatorTextView(
+ 
+         super.setText(finalText, BufferType.SPANNABLE)
+     }
+-
+-    private companion object {
+-        private val fillColor = Color.rgb(235, 235, 235)
+-        private val strokeColor = Color.rgb(45, 45, 45)
+-
+-        // A span object with text outlining properties
+-        val spanOutline =
+-            OutlineSpan(
+-                strokeColor = strokeColor,
+-                strokeWidth = 4f,
+-            )
+-    }
+ }
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt
+index e9130dc..dc64ec9 100644
+--- a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt
++++ b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt
+@@ -251,6 +251,48 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
+             field = value
+             (viewer as? PagerViewer)?.config?.hingeGapSize = value
+         }
++    private var isDoublePageNumberStyle = false
++    private var pageNumberBottomInset = 0
++    private var pageNumberTopInset = 0
++
++    private fun applyPageNumberAppearance() {
++        val doublePage = isDoublePageNumberStyle
++        val position = preferences.pageNumberPosition(doublePage).get().coerceIn(0, 8)
++        val vertical = when (position / 3) {
++            0 -> Gravity.TOP
++            1 -> Gravity.CENTER_VERTICAL
++            else -> Gravity.BOTTOM
++        }
++        val horizontal = when (position % 3) {
++            0 -> Gravity.LEFT
++            1 -> Gravity.CENTER_HORIZONTAL
++            else -> Gravity.RIGHT
++        }
++        listOf(binding.pageNumber, binding.pageNumberRight).forEach { indicator ->
++            val right = indicator === binding.pageNumberRight
++            indicator.apply {
++                setAppearance(
++                    sizeSp = preferences.pageNumberSize(doublePage).get().coerceIn(8, 48),
++                    textColor = runCatching { Color.parseColor(preferences.pageNumberTextColor(doublePage).get()) }
++                        .getOrDefault(Color.rgb(235, 235, 235)),
++                    strokeColor = runCatching { Color.parseColor(preferences.pageNumberStrokeColor(doublePage).get()) }
++                        .getOrDefault(Color.rgb(45, 45, 45)),
++                    strokeWidthPx = preferences.pageNumberStrokeWidth(doublePage).get().coerceIn(0, 12),
++                )
++                updateLayoutParams<CoordinatorLayout.LayoutParams> {
++                    gravity = vertical or if (doublePage) { if (right) Gravity.RIGHT else Gravity.LEFT } else horizontal
++                    // Keep the original placement beside the hinge for the default position.
++                    marginStart = if (!doublePage && position == 7 && hingeGapSize > 0) binding.root.width / 2 + hingeGapSize else 0
++                    topMargin = if (position < 3) pageNumberTopInset else 0
++                    bottomMargin = if (position >= 6) pageNumberBottomInset else 0
++                }
++                translationX =
++                    (if (right) preferences.pageNumberRightOffsetX().get() else preferences.pageNumberOffsetX(doublePage).get())
++                        .coerceIn(-200, 200).dpToPx.toFloat()
++                translationY = preferences.pageNumberOffsetY(doublePage).get().coerceIn(-200, 200).dpToPx.toFloat()
++            }
++        }
++    }
+ 
+     companion object {
+         const val SHIFT_DOUBLE_PAGES = "shiftingDoublePages"
+@@ -1377,8 +1419,14 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
+                     bottomMargin = if (noInsetForFullScreen) 0 else insetsToUse.bottom
+                 }
+             }
+-            binding.pageNumber.updateLayoutParams<CoordinatorLayout.LayoutParams> {
+-                bottomMargin = if (noInsetForFullScreen) 0 else systemInsets.bottom
++            pageNumberTopInset = if (noInsetForFullScreen) 0 else systemInsets.top
++            pageNumberBottomInset = if (noInsetForFullScreen) 0 else systemInsets.bottom
++            val position = preferences.pageNumberPosition(isDoublePageNumberStyle).get().coerceIn(0, 8)
++            listOf(binding.pageNumber, binding.pageNumberRight).forEach { indicator ->
++                indicator.updateLayoutParams<CoordinatorLayout.LayoutParams> {
++                    topMargin = if (position < 3) pageNumberTopInset else 0
++                    bottomMargin = if (position >= 6) pageNumberBottomInset else 0
++                }
+             }
+             binding.viewerContainer.requestLayout()
+             reapplyVerticalSeekbarLayoutIfSizeChanged()
+@@ -1905,14 +1953,16 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
+         viewModel.onPageSelected(page, hasExtraPage)
+         val pages = page.chapter.pages ?: return
+ 
+-        val currentPage =
++        val firstPageOnLeft =
+             if (hasExtraPage) {
+                 val invertDoublePage = (viewer as? PagerViewer)?.config?.invertDoublePages ?: false
+-                if ((
+-                        !binding.readerNav.pageSeekbar.isRTL ||
+-                            binding.readerNav.pageSeekbar.isVertical
+-                    ).xor(invertDoublePage)
+-                ) {
++                (!binding.readerNav.pageSeekbar.isRTL || binding.readerNav.pageSeekbar.isVertical).xor(invertDoublePage)
++            } else {
++                false
++            }
++        val currentPage =
++            if (hasExtraPage) {
++                if (firstPageOnLeft) {
+                     "${page.number}-${page.number + 1}"
+                 } else {
+                     "${page.number + 1}-${page.number}"
+@@ -1922,12 +1972,32 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
+             }
+ 
+         val totalPages = pages.size.toString()
+-        if (hingeGapSize > 0) {
++        val doublePageStyle = hasExtraPage
++        if (isDoublePageNumberStyle != doublePageStyle) {
++            isDoublePageNumberStyle = doublePageStyle
++            applyPageNumberAppearance()
++        } else {
++            // The width and hinge state can change when the device is folded or rotated.
++            val position = preferences.pageNumberPosition(doublePageStyle).get().coerceIn(0, 8)
++            val margin = if (!doublePageStyle && position == 7 && hingeGapSize > 0) binding.root.width / 2 + hingeGapSize else 0
+             binding.pageNumber.updateLayoutParams<CoordinatorLayout.LayoutParams> {
+-                marginStart = (binding.root.width) / 2 + hingeGapSize
++                if (marginStart != margin) marginStart = margin
+             }
+         }
+-        binding.pageNumber.text = if (resources.isLTR) "$currentPage/$totalPages" else "$totalPages/$currentPage"
++        binding.pageNumber.text =
++            if (hasExtraPage) {
++                (if (firstPageOnLeft) page.number else page.number + 1).toString()
++            } else {
++                "${page.number}${if (page.firstHalf == false) "*" else ""}"
++            }
++        binding.pageNumberRight.text =
++            if (hasExtraPage) (if (firstPageOnLeft) page.number + 1 else page.number).toString() else ""
++        binding.pageNumberRight.visibility =
++            if (hasExtraPage) {
++                if (preferences.showPageNumber().get()) View.VISIBLE else View.INVISIBLE
++            } else {
++                View.GONE
++            }
+         if (viewer is R2LPagerViewer && !binding.readerNav.pageSeekbar.isVertical) {
+             binding.readerNav.rightPageText.text = currentPage
+             binding.readerNav.leftPageText.text = totalPages
+@@ -2357,6 +2427,22 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
+ 
+             preferences.showPageNumber().asImmediateFlowIn(scope) { setPageNumberVisibility(it) }
+ 
++            applyPageNumberAppearance()
++            listOf(false, true).flatMap { doublePage ->
++                listOf(
++                    preferences.pageNumberSize(doublePage).asFlow(),
++                    preferences.pageNumberPosition(doublePage).asFlow(),
++                    preferences.pageNumberOffsetX(doublePage).asFlow(),
++                    preferences.pageNumberRightOffsetX().asFlow(),
++                    preferences.pageNumberOffsetY(doublePage).asFlow(),
++                    preferences.pageNumberStrokeWidth(doublePage).asFlow(),
++                    preferences.pageNumberTextColor(doublePage).asFlow(),
++                    preferences.pageNumberStrokeColor(doublePage).asFlow(),
++                ).map { flow -> flow.map { Unit } }
++            }.let { flows -> merge(*flows.toTypedArray()) }
++                .onEach { applyPageNumberAppearance() }
++                .launchIn(scope)
++
+             preferences
+                 .landscapeCutoutBehavior()
+                 .asFlow()
+@@ -2407,6 +2493,8 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
+          */
+         private fun setPageNumberVisibility(visible: Boolean) {
+             binding.pageNumber.visibility = if (visible) View.VISIBLE else View.INVISIBLE
++            binding.pageNumberRight.visibility =
++                if (!isDoublePageNumberStyle) View.GONE else if (visible) View.VISIBLE else View.INVISIBLE
+         }
+ 
+         /**
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/ui/setting/SettingsReaderController.kt b/app/src/main/java/eu/kanade/tachiyomi/ui/setting/SettingsReaderController.kt
+index 38f6abf..446584c 100644
+--- a/app/src/main/java/eu/kanade/tachiyomi/ui/setting/SettingsReaderController.kt
++++ b/app/src/main/java/eu/kanade/tachiyomi/ui/setting/SettingsReaderController.kt
+@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.ui.setting
+ import android.hardware.display.DisplayManager
+ import android.os.Build
+ import android.view.Display
++import android.widget.Toast
+ import androidx.core.content.getSystemService
+ import androidx.preference.PreferenceScreen
+ import eu.kanade.tachiyomi.R
+@@ -136,6 +137,82 @@ class SettingsReaderController : SettingsController() {
+                 }
+             }
+ 
++            listOf(false, true).forEach { doublePage ->
++                preferenceCategory {
++                    titleRes = if (doublePage) R.string.page_number_double_style else R.string.page_number_single_style
++                    dependency = Keys.showPageNumber
++
++                    intListPreference(activity) {
++                        bindTo(preferences.pageNumberPosition(doublePage))
++                        titleRes = if (doublePage) R.string.page_number_vertical_position else R.string.page_number_position
++                        if (doublePage) {
++                            entriesRes = arrayOf(R.string.top, R.string.center, R.string.bottom)
++                            entryValues = listOf(1, 4, 7)
++                        } else {
++                            entries =
++                                listOf(R.string.top, R.string.center, R.string.bottom).flatMap { vertical ->
++                                    listOf(R.string.left, R.string.center, R.string.right).map { horizontal ->
++                                        "${context.getString(vertical)} · ${context.getString(horizontal)}"
++                                    }
++                                }
++                            entryValues = (0..8).toList()
++                        }
++                    }
++                    sliderPreference {
++                        bindTo(preferences.pageNumberOffsetX(doublePage))
++                        titleRes = if (doublePage) R.string.page_number_left_offset_x else R.string.page_number_offset_x
++                        entryValues = (-200..200 step 5).toList()
++                        valueFormatter = { "$it dp" }
++                    }
++                    if (doublePage) {
++                        sliderPreference {
++                            bindTo(preferences.pageNumberRightOffsetX())
++                            titleRes = R.string.page_number_right_offset_x
++                            entryValues = (-200..200 step 5).toList()
++                            valueFormatter = { "$it dp" }
++                        }
++                    }
++                    sliderPreference {
++                        bindTo(preferences.pageNumberOffsetY(doublePage))
++                        titleRes = R.string.page_number_offset_y
++                        entryValues = (-200..200 step 5).toList()
++                        valueFormatter = { "$it dp" }
++                    }
++                    sliderPreference {
++                        bindTo(preferences.pageNumberSize(doublePage))
++                        titleRes = R.string.page_number_text_size
++                        entryValues = (8..48).toList()
++                        valueFormatter = { "$it sp" }
++                    }
++                    editTextPreference(activity) {
++                        bindTo(preferences.pageNumberTextColor(doublePage))
++                        titleRes = R.string.page_number_text_color
++                        dialogSummary = context.getString(R.string.page_number_hex_hint)
++                        onChange { value ->
++                            val valid = (value as? String)?.matches(Regex("#[0-9a-fA-F]{6}")) == true
++                            if (!valid) Toast.makeText(context, R.string.page_number_hex_hint, Toast.LENGTH_SHORT).show()
++                            valid
++                        }
++                    }
++                    sliderPreference {
++                        bindTo(preferences.pageNumberStrokeWidth(doublePage))
++                        titleRes = R.string.page_number_stroke_width
++                        entryValues = (0..12).toList()
++                        valueFormatter = { "$it px" }
++                    }
++                    editTextPreference(activity) {
++                        bindTo(preferences.pageNumberStrokeColor(doublePage))
++                        titleRes = R.string.page_number_stroke_color
++                        dialogSummary = context.getString(R.string.page_number_hex_hint)
++                        onChange { value ->
++                            val valid = (value as? String)?.matches(Regex("#[0-9a-fA-F]{6}")) == true
++                            if (!valid) Toast.makeText(context, R.string.page_number_hex_hint, Toast.LENGTH_SHORT).show()
++                            valid
++                        }
++                    }
++                }
++            }
++
+             preferenceCategory {
+                 titleRes = R.string.reading
+ 
+diff --git a/app/src/main/res/layout/reader_activity.xml b/app/src/main/res/layout/reader_activity.xml
+index 8f39bd1..8c51a9a 100644
+--- a/app/src/main/res/layout/reader_activity.xml
++++ b/app/src/main/res/layout/reader_activity.xml
+@@ -32,6 +32,16 @@
+         android:padding="4dp"
+         android:textStyle="bold" />
+ 
++    <eu.kanade.tachiyomi.ui.reader.PageIndicatorTextView
++        android:id="@+id/page_number_right"
++        style="?textAppearanceBodySmall"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:layout_gravity="bottom|right"
++        android:padding="4dp"
++        android:textStyle="bold"
++        android:visibility="gone" />
++
+     <eu.kanade.tachiyomi.ui.reader.ReaderColorFilterView
+         android:id="@+id/color_overlay"
+         android:layout_width="match_parent"
+diff --git a/app/src/main/res/values-ko/strings.xml b/app/src/main/res/values-ko/strings.xml
+index 74f3026..0a3558b 100644
+--- a/app/src/main/res/values-ko/strings.xml
++++ b/app/src/main/res/values-ko/strings.xml
+@@ -96,6 +96,19 @@
+     <string name="fullscreen">전체화면</string>
+     <string name="double_tap_anim_speed">더블 탭 애니메이션 속도</string>
+     <string name="show_page_number">페이지 번호 표시</string>
++    <string name="page_number_single_style">페이지 번호 · 단면 표시</string>
++    <string name="page_number_double_style">페이지 번호 · 양면 표시</string>
++    <string name="page_number_position">위치</string>
++    <string name="page_number_vertical_position">세로 위치 (좌우 각각 표시)</string>
++    <string name="page_number_left_offset_x">왼쪽 페이지 번호 · 가로 미세 조정</string>
++    <string name="page_number_right_offset_x">오른쪽 페이지 번호 · 가로 미세 조정</string>
++    <string name="page_number_offset_x">가로 미세 조정 (오른쪽 +)</string>
++    <string name="page_number_offset_y">세로 미세 조정 (아래쪽 +)</string>
++    <string name="page_number_text_size">글자 크기</string>
++    <string name="page_number_text_color">글자색</string>
++    <string name="page_number_stroke_width">테두리 두께 (0 = 끔)</string>
++    <string name="page_number_stroke_color">테두리 색</string>
++    <string name="page_number_hex_hint">#RRGGBB 형식으로 입력하세요 (예: #EBEBEB)</string>
+     <string name="crop_borders">모서리 자르기</string>
+     <string name="use_custom_brightness">사용자 정의 밝기 사용</string>
+     <string name="use_custom_color_filter">사용자 정의 컬러 필터 사용</string>
+@@ -1046,4 +1059,4 @@
+     <string name="ext_installer_summary">안드로이드 12 이하 기기에서 사용자 개입 없이 확장 기능 설치와 업데이트가 가능하도록 합니다</string>
+     <string name="save_pages_separately">각각의 폴더에 페이지 저장</string>
+     <string name="create_folders_by_manga_title">만화 제목을 따라 폴더 생성</string>
+-</resources>
+\ No newline at end of file
++</resources>
+diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
+index c77eab3..f0aa92b 100644
+--- a/app/src/main/res/values/strings.xml
++++ b/app/src/main/res/values/strings.xml
+@@ -451,6 +451,19 @@
+     <string name="enable_zoom_out">Enable zoom out</string>
+     <string name="double_tap_anim_speed">Double tap animation speed</string>
+     <string name="show_page_number">Show page number</string>
++    <string name="page_number_single_style">Page number · single page</string>
++    <string name="page_number_double_style">Page number · double pages</string>
++    <string name="page_number_position">Position</string>
++    <string name="page_number_vertical_position">Vertical position (left and right)</string>
++    <string name="page_number_left_offset_x">Left page number · horizontal adjustment</string>
++    <string name="page_number_right_offset_x">Right page number · horizontal adjustment</string>
++    <string name="page_number_offset_x">Horizontal adjustment (right +)</string>
++    <string name="page_number_offset_y">Vertical adjustment (down +)</string>
++    <string name="page_number_text_size">Text size</string>
++    <string name="page_number_text_color">Text color</string>
++    <string name="page_number_stroke_width">Outline width (0 = off)</string>
++    <string name="page_number_stroke_color">Outline color</string>
++    <string name="page_number_hex_hint">Enter a color as #RRGGBB (e.g. #EBEBEB)</string>
+     <string name="page_preload_amount">Page preload amount</string>
+     <string name="amount_of_pages_to_preload">The amount of pages to preload when reading. Higher values will result in a smoother reading experience, at the cost of higher cache and network usage.</string>
+     <string name="invert_double_pages">Invert double pages</string>
