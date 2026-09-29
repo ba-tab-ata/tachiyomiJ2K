@@ -43,13 +43,23 @@ index 0000000..484d0c8
 +          path: app/build/outputs/apk/standard/debug/*universal*.apk
 +          if-no-files-found: error
 diff --git a/app/src/main/java/eu/kanade/tachiyomi/data/preference/PreferencesHelper.kt b/app/src/main/java/eu/kanade/tachiyomi/data/preference/PreferencesHelper.kt
-index 49b1e55..700e8d2 100644
+index 49b1e55..41c615f 100644
 --- a/app/src/main/java/eu/kanade/tachiyomi/data/preference/PreferencesHelper.kt
 +++ b/app/src/main/java/eu/kanade/tachiyomi/data/preference/PreferencesHelper.kt
-@@ -145,6 +145,28 @@ class PreferencesHelper(
+@@ -145,6 +145,38 @@ class PreferencesHelper(
  
      fun showPageNumber() = flowPrefs.getBoolean(Keys.showPageNumber, true)
  
++    fun showPageProgressBar() = flowPrefs.getBoolean("show_page_progress_bar", true)
++
++    fun pageProgressBarHeight() = flowPrefs.getInt("page_progress_bar_height_px", 3)
++
++    fun pageProgressBarFillColor() = flowPrefs.getString("page_progress_bar_fill_color", "#000000")
++
++    fun pageProgressBarTrackColor() = flowPrefs.getString("page_progress_bar_track_color", "#66000000")
++
++    fun pageProgressBarFromRight() = flowPrefs.getBoolean("page_progress_bar_from_right", false)
++
 +    private fun pageNumberAppearanceKey(doublePage: Boolean, property: String) =
 +        "page_number_${if (doublePage) "double" else "single"}_$property"
 +
@@ -140,17 +150,93 @@ index c2a8962..94d0961 100644
 -            )
 -    }
  }
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/PageProgressBarView.kt b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/PageProgressBarView.kt
+new file mode 100644
+index 0000000..a69149f
+--- /dev/null
++++ b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/PageProgressBarView.kt
+@@ -0,0 +1,50 @@
++package eu.kanade.tachiyomi.ui.reader
++
++import android.content.Context
++import android.graphics.Canvas
++import android.graphics.Color
++import android.graphics.Paint
++import android.util.AttributeSet
++import android.view.View
++
++/** A thin, non-interactive indicator of the current chapter's reading progress. */
++class PageProgressBarView(
++    context: Context,
++    attrs: AttributeSet? = null,
++) : View(context, attrs) {
++    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
++    private var progress = 0f
++    private var fillColor = Color.BLACK
++    private var trackColor = Color.argb(102, 0, 0, 0)
++    private var rightToLeft = false
++
++    init {
++        isClickable = false
++        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
++    }
++
++    fun setAppearance(fill: Int, track: Int, fromRight: Boolean) {
++        fillColor = fill
++        trackColor = track
++        rightToLeft = fromRight
++        invalidate()
++    }
++
++    fun setProgress(fraction: Float) {
++        progress = fraction.coerceIn(0f, 1f)
++        invalidate()
++    }
++
++    override fun onDraw(canvas: Canvas) {
++        super.onDraw(canvas)
++        paint.color = trackColor
++        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
++        paint.color = fillColor
++        val filledWidth = width * progress
++        if (rightToLeft) {
++            canvas.drawRect(width - filledWidth, 0f, width.toFloat(), height.toFloat(), paint)
++        } else {
++            canvas.drawRect(0f, 0f, filledWidth, height.toFloat(), paint)
++        }
++    }
++}
 diff --git a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt
-index e9130dc..824f506 100644
+index e9130dc..00819ac 100644
 --- a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt
 +++ b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt
-@@ -251,6 +251,48 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
+@@ -251,6 +251,68 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
              field = value
              (viewer as? PagerViewer)?.config?.hingeGapSize = value
          }
 +    private var isDoublePageNumberStyle = false
 +    private var pageNumberBottomInset = 0
 +    private var pageNumberTopInset = 0
++
++    private fun pageNumberBottomMargin() =
++        pageNumberBottomInset + if (preferences.showPageProgressBar().get()) preferences.pageProgressBarHeight().get().coerceIn(1, 32) + 2.dpToPx else 0
++
++    private fun applyPageProgressAppearance() {
++        binding.pageProgressBar.apply {
++            isVisible = preferences.showPageProgressBar().get()
++            setAppearance(
++                fill = runCatching { Color.parseColor(preferences.pageProgressBarFillColor().get()) }.getOrDefault(Color.BLACK),
++                track = runCatching { Color.parseColor(preferences.pageProgressBarTrackColor().get()) }
++                    .getOrDefault(Color.argb(102, 0, 0, 0)),
++                fromRight = preferences.pageProgressBarFromRight().get(),
++            )
++            updateLayoutParams<CoordinatorLayout.LayoutParams> {
++                height = preferences.pageProgressBarHeight().get().coerceIn(1, 32)
++                bottomMargin = pageNumberBottomInset
++            }
++        }
++        applyPageNumberAppearance()
++    }
 +
 +    private fun applyPageNumberAppearance() {
 +        val doublePage = isDoublePageNumberStyle
@@ -181,7 +267,7 @@ index e9130dc..824f506 100644
 +                    // Keep the original placement beside the hinge for the default position.
 +                    marginStart = if (!doublePage && position == 7 && hingeGapSize > 0) binding.root.width / 2 + hingeGapSize else 0
 +                    topMargin = if (position < 3) pageNumberTopInset else 0
-+                    bottomMargin = if (position >= 6) pageNumberBottomInset else 0
++                    bottomMargin = if (position >= 6) pageNumberBottomMargin() else 0
 +                }
 +                translationX =
 +                    (if (right) preferences.pageNumberRightOffsetX().get() else preferences.pageNumberOffsetX(doublePage).get())
@@ -193,7 +279,7 @@ index e9130dc..824f506 100644
  
      companion object {
          const val SHIFT_DOUBLE_PAGES = "shiftingDoublePages"
-@@ -1377,8 +1419,14 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
+@@ -1377,8 +1439,17 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
                      bottomMargin = if (noInsetForFullScreen) 0 else insetsToUse.bottom
                  }
              }
@@ -202,15 +288,18 @@ index e9130dc..824f506 100644
 +            pageNumberTopInset = if (noInsetForFullScreen) 0 else systemInsets.top
 +            pageNumberBottomInset = if (noInsetForFullScreen) 0 else systemInsets.bottom
 +            val position = preferences.pageNumberPosition(isDoublePageNumberStyle).get().coerceIn(0, 8)
++            binding.pageProgressBar.updateLayoutParams<CoordinatorLayout.LayoutParams> {
++                bottomMargin = pageNumberBottomInset
++            }
 +            listOf(binding.pageNumber, binding.pageNumberRight).forEach { indicator ->
 +                indicator.updateLayoutParams<CoordinatorLayout.LayoutParams> {
 +                    topMargin = if (position < 3) pageNumberTopInset else 0
-+                    bottomMargin = if (position >= 6) pageNumberBottomInset else 0
++                    bottomMargin = if (position >= 6) pageNumberBottomMargin() else 0
 +                }
              }
              binding.viewerContainer.requestLayout()
              reapplyVerticalSeekbarLayoutIfSizeChanged()
-@@ -1905,14 +1953,16 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
+@@ -1905,14 +1976,16 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
          viewModel.onPageSelected(page, hasExtraPage)
          val pages = page.chapter.pages ?: return
  
@@ -233,11 +322,13 @@ index e9130dc..824f506 100644
                      "${page.number}-${page.number + 1}"
                  } else {
                      "${page.number + 1}-${page.number}"
-@@ -1922,12 +1972,32 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
+@@ -1922,12 +1995,34 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
              }
  
          val totalPages = pages.size.toString()
 -        if (hingeGapSize > 0) {
++        val visiblePageNumber = (page.number + if (hasExtraPage) 1 else 0).coerceAtMost(pages.size)
++        binding.pageProgressBar.setProgress(visiblePageNumber.toFloat() / pages.size.coerceAtLeast(1))
 +        val doublePageStyle = hasExtraPage
 +        if (isDoublePageNumberStyle != doublePageStyle) {
 +            isDoublePageNumberStyle = doublePageStyle
@@ -269,10 +360,20 @@ index e9130dc..824f506 100644
          if (viewer is R2LPagerViewer && !binding.readerNav.pageSeekbar.isVertical) {
              binding.readerNav.rightPageText.text = currentPage
              binding.readerNav.leftPageText.text = totalPages
-@@ -2357,6 +2427,22 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
+@@ -2357,6 +2452,32 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
  
              preferences.showPageNumber().asImmediateFlowIn(scope) { setPageNumberVisibility(it) }
  
++            applyPageProgressAppearance()
++            merge(
++                preferences.showPageProgressBar().asFlow(),
++                preferences.pageProgressBarHeight().asFlow(),
++                preferences.pageProgressBarFillColor().asFlow(),
++                preferences.pageProgressBarTrackColor().asFlow(),
++                preferences.pageProgressBarFromRight().asFlow(),
++            ).onEach { applyPageProgressAppearance() }
++                .launchIn(scope)
++
 +            applyPageNumberAppearance()
 +            listOf(false, true).flatMap { doublePage ->
 +                listOf(
@@ -292,7 +393,7 @@ index e9130dc..824f506 100644
              preferences
                  .landscapeCutoutBehavior()
                  .asFlow()
-@@ -2407,6 +2493,8 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
+@@ -2407,6 +2528,8 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
           */
          private fun setPageNumberVisibility(visible: Boolean) {
              binding.pageNumber.visibility = if (visible) View.VISIBLE else View.INVISIBLE
@@ -302,7 +403,7 @@ index e9130dc..824f506 100644
  
          /**
 diff --git a/app/src/main/java/eu/kanade/tachiyomi/ui/setting/SettingsReaderController.kt b/app/src/main/java/eu/kanade/tachiyomi/ui/setting/SettingsReaderController.kt
-index 38f6abf..446584c 100644
+index 38f6abf..b847176 100644
 --- a/app/src/main/java/eu/kanade/tachiyomi/ui/setting/SettingsReaderController.kt
 +++ b/app/src/main/java/eu/kanade/tachiyomi/ui/setting/SettingsReaderController.kt
 @@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.ui.setting
@@ -313,10 +414,57 @@ index 38f6abf..446584c 100644
  import androidx.core.content.getSystemService
  import androidx.preference.PreferenceScreen
  import eu.kanade.tachiyomi.R
-@@ -136,6 +137,82 @@ class SettingsReaderController : SettingsController() {
+@@ -114,6 +115,10 @@ class SettingsReaderController : SettingsController() {
+                     titleRes = R.string.show_page_number
+                     defaultValue = true
+                 }
++                switchPreference {
++                    bindTo(preferences.showPageProgressBar())
++                    titleRes = R.string.show_page_progress_bar
++                }
+                 intListPreference(activity) {
+                     bindTo(preferences.landscapeCutoutBehavior())
+                     title = "${context.getString(R.string.cutout_area_behavior)} (${context.getString(R.string.landscape)})"
+@@ -136,6 +141,118 @@ class SettingsReaderController : SettingsController() {
                  }
              }
  
++            preferenceCategory {
++                titleRes = R.string.page_progress_bar_style
++                dependency = "show_page_progress_bar"
++
++                sliderPreference {
++                    bindTo(preferences.pageProgressBarHeight())
++                    titleRes = R.string.page_progress_bar_height
++                    entryValues = (1..32).toList()
++                    valueFormatter = { "$it px" }
++                }
++                editTextPreference(activity) {
++                    bindTo(preferences.pageProgressBarFillColor())
++                    titleRes = R.string.page_progress_bar_fill_color
++                    dialogSummary = context.getString(R.string.page_progress_bar_hex_hint)
++                    onChange { value ->
++                        val valid = (value as? String)?.matches(Regex("#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")) == true
++                        if (!valid) Toast.makeText(context, R.string.page_progress_bar_hex_hint, Toast.LENGTH_SHORT).show()
++                        valid
++                    }
++                }
++                editTextPreference(activity) {
++                    bindTo(preferences.pageProgressBarTrackColor())
++                    titleRes = R.string.page_progress_bar_track_color
++                    dialogSummary = context.getString(R.string.page_progress_bar_hex_hint)
++                    onChange { value ->
++                        val valid = (value as? String)?.matches(Regex("#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")) == true
++                        if (!valid) Toast.makeText(context, R.string.page_progress_bar_hex_hint, Toast.LENGTH_SHORT).show()
++                        valid
++                    }
++                }
++                switchPreference {
++                    bindTo(preferences.pageProgressBarFromRight())
++                    titleRes = R.string.page_progress_bar_from_right
++                }
++            }
++
 +            listOf(false, true).forEach { doublePage ->
 +                preferenceCategory {
 +                    titleRes = if (doublePage) R.string.page_number_double_style else R.string.page_number_single_style
@@ -397,10 +545,24 @@ index 38f6abf..446584c 100644
                  titleRes = R.string.reading
  
 diff --git a/app/src/main/res/layout/reader_activity.xml b/app/src/main/res/layout/reader_activity.xml
-index 8f39bd1..8c51a9a 100644
+index 8f39bd1..71e8a9f 100644
 --- a/app/src/main/res/layout/reader_activity.xml
 +++ b/app/src/main/res/layout/reader_activity.xml
-@@ -32,6 +32,16 @@
+@@ -23,6 +23,13 @@
+         android:visibility="gone"
+         tools:visibility="visible" />
+ 
++    <eu.kanade.tachiyomi.ui.reader.PageProgressBarView
++        android:id="@+id/page_progress_bar"
++        android:layout_width="match_parent"
++        android:layout_height="3px"
++        android:layout_gravity="bottom"
++        android:visibility="gone" />
++
+     <eu.kanade.tachiyomi.ui.reader.PageIndicatorTextView
+         android:id="@+id/page_number"
+         style="?textAppearanceBodySmall"
+@@ -32,6 +39,16 @@
          android:padding="4dp"
          android:textStyle="bold" />
  
@@ -418,13 +580,20 @@ index 8f39bd1..8c51a9a 100644
          android:id="@+id/color_overlay"
          android:layout_width="match_parent"
 diff --git a/app/src/main/res/values-ko/strings.xml b/app/src/main/res/values-ko/strings.xml
-index 74f3026..0a3558b 100644
+index 74f3026..2fa2e6e 100644
 --- a/app/src/main/res/values-ko/strings.xml
 +++ b/app/src/main/res/values-ko/strings.xml
-@@ -96,6 +96,19 @@
+@@ -96,6 +96,26 @@
      <string name="fullscreen">전체화면</string>
      <string name="double_tap_anim_speed">더블 탭 애니메이션 속도</string>
      <string name="show_page_number">페이지 번호 표시</string>
++    <string name="show_page_progress_bar">하단 페이지 진행 막대 표시</string>
++    <string name="page_progress_bar_style">하단 페이지 진행 막대</string>
++    <string name="page_progress_bar_height">막대 높이</string>
++    <string name="page_progress_bar_fill_color">진행 색</string>
++    <string name="page_progress_bar_track_color">배경 막대 색</string>
++    <string name="page_progress_bar_from_right">오른쪽에서 왼쪽으로 채우기</string>
++    <string name="page_progress_bar_hex_hint">#RRGGBB 또는 #AARRGGBB 형식 (맨 앞은 투명도)</string>
 +    <string name="page_number_single_style">페이지 번호 · 단면 표시</string>
 +    <string name="page_number_double_style">페이지 번호 · 양면 표시</string>
 +    <string name="page_number_position">위치</string>
@@ -441,7 +610,7 @@ index 74f3026..0a3558b 100644
      <string name="crop_borders">모서리 자르기</string>
      <string name="use_custom_brightness">사용자 정의 밝기 사용</string>
      <string name="use_custom_color_filter">사용자 정의 컬러 필터 사용</string>
-@@ -1046,4 +1059,4 @@
+@@ -1046,4 +1066,4 @@
      <string name="ext_installer_summary">안드로이드 12 이하 기기에서 사용자 개입 없이 확장 기능 설치와 업데이트가 가능하도록 합니다</string>
      <string name="save_pages_separately">각각의 폴더에 페이지 저장</string>
      <string name="create_folders_by_manga_title">만화 제목을 따라 폴더 생성</string>
@@ -449,13 +618,20 @@ index 74f3026..0a3558b 100644
 \ No newline at end of file
 +</resources>
 diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
-index c77eab3..f0aa92b 100644
+index c77eab3..94c979f 100644
 --- a/app/src/main/res/values/strings.xml
 +++ b/app/src/main/res/values/strings.xml
-@@ -451,6 +451,19 @@
+@@ -451,6 +451,26 @@
      <string name="enable_zoom_out">Enable zoom out</string>
      <string name="double_tap_anim_speed">Double tap animation speed</string>
      <string name="show_page_number">Show page number</string>
++    <string name="show_page_progress_bar">Show page progress bar</string>
++    <string name="page_progress_bar_style">Bottom page progress bar</string>
++    <string name="page_progress_bar_height">Bar height</string>
++    <string name="page_progress_bar_fill_color">Progress color</string>
++    <string name="page_progress_bar_track_color">Background track color</string>
++    <string name="page_progress_bar_from_right">Fill from right to left</string>
++    <string name="page_progress_bar_hex_hint">Use #RRGGBB or #AARRGGBB (alpha first)</string>
 +    <string name="page_number_single_style">Page number · single page</string>
 +    <string name="page_number_double_style">Page number · double pages</string>
 +    <string name="page_number_position">Position</string>
