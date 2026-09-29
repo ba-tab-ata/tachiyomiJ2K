@@ -42,8 +42,21 @@ index 0000000..484d0c8
 +          name: tachiyomij2k-custom-debug-apk
 +          path: app/build/outputs/apk/standard/debug/*universal*.apk
 +          if-no-files-found: error
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/data/preference/PreferenceKeys.kt b/app/src/main/java/eu/kanade/tachiyomi/data/preference/PreferenceKeys.kt
+index 8f3f331..1973824 100644
+--- a/app/src/main/java/eu/kanade/tachiyomi/data/preference/PreferenceKeys.kt
++++ b/app/src/main/java/eu/kanade/tachiyomi/data/preference/PreferenceKeys.kt
+@@ -63,6 +63,8 @@ object PreferenceKeys {
+ 
+     const val pagerNavInverted = "reader_tapping_inverted"
+ 
++    const val pagerNavInvertedDouble = "reader_tapping_inverted_double"
++
+     const val webtoonNavInverted = "reader_tapping_inverted_webtoon"
+ 
+     const val pageLayout = "page_layout"
 diff --git a/app/src/main/java/eu/kanade/tachiyomi/data/preference/PreferencesHelper.kt b/app/src/main/java/eu/kanade/tachiyomi/data/preference/PreferencesHelper.kt
-index 49b1e55..464815e 100644
+index 49b1e55..ef0fff9 100644
 --- a/app/src/main/java/eu/kanade/tachiyomi/data/preference/PreferencesHelper.kt
 +++ b/app/src/main/java/eu/kanade/tachiyomi/data/preference/PreferencesHelper.kt
 @@ -145,6 +145,40 @@ class PreferencesHelper(
@@ -87,6 +100,15 @@ index 49b1e55..464815e 100644
      fun fullscreen() = flowPrefs.getBoolean(Keys.fullscreen, true)
  
      fun keepScreenOn() = flowPrefs.getBoolean(Keys.keepScreenOn, true)
+@@ -197,6 +231,8 @@ class PreferencesHelper(
+ 
+     fun pagerNavInverted() = flowPrefs.getEnum(Keys.pagerNavInverted, ViewerNavigation.TappingInvertMode.NONE)
+ 
++    fun pagerNavInvertedDouble() = flowPrefs.getEnum(Keys.pagerNavInvertedDouble, ViewerNavigation.TappingInvertMode.NONE)
++
+     fun webtoonNavInverted() = flowPrefs.getEnum(Keys.webtoonNavInverted, ViewerNavigation.TappingInvertMode.NONE)
+ 
+     fun pageLayout() = flowPrefs.getInt(Keys.pageLayout, PageLayout.AUTOMATIC.value)
 diff --git a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/PageIndicatorTextView.kt b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/PageIndicatorTextView.kt
 index c2a8962..94d0961 100644
 --- a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/PageIndicatorTextView.kt
@@ -209,7 +231,7 @@ index 0000000..a69149f
 +    }
 +}
 diff --git a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt
-index e9130dc..cc142fa 100644
+index e9130dc..49e7757 100644
 --- a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt
 +++ b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt
 @@ -251,6 +251,77 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
@@ -311,7 +333,11 @@ index e9130dc..cc142fa 100644
              }
              binding.viewerContainer.requestLayout()
              reapplyVerticalSeekbarLayoutIfSizeChanged()
-@@ -1905,14 +1986,16 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
+@@ -1902,17 +1983,20 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
+         page: ReaderPage,
+         hasExtraPage: Boolean,
+     ) {
++        (viewer as? PagerViewer)?.config?.updateTapInversion(hasExtraPage)
          viewModel.onPageSelected(page, hasExtraPage)
          val pages = page.chapter.pages ?: return
  
@@ -334,7 +360,7 @@ index e9130dc..cc142fa 100644
                      "${page.number}-${page.number + 1}"
                  } else {
                      "${page.number + 1}-${page.number}"
-@@ -1922,12 +2005,34 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
+@@ -1922,12 +2006,34 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
              }
  
          val totalPages = pages.size.toString()
@@ -372,7 +398,7 @@ index e9130dc..cc142fa 100644
          if (viewer is R2LPagerViewer && !binding.readerNav.pageSeekbar.isVertical) {
              binding.readerNav.rightPageText.text = currentPage
              binding.readerNav.leftPageText.text = totalPages
-@@ -2357,6 +2462,33 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
+@@ -2357,6 +2463,33 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
  
              preferences.showPageNumber().asImmediateFlowIn(scope) { setPageNumberVisibility(it) }
  
@@ -406,7 +432,7 @@ index e9130dc..cc142fa 100644
              preferences
                  .landscapeCutoutBehavior()
                  .asFlow()
-@@ -2407,6 +2539,8 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
+@@ -2407,6 +2540,8 @@ class ReaderActivity : BaseActivity<ReaderActivityBinding>() {
           */
          private fun setPageNumberVisibility(visible: Boolean) {
              binding.pageNumber.visibility = if (visible) View.VISIBLE else View.INVISIBLE
@@ -415,8 +441,83 @@ index e9130dc..cc142fa 100644
          }
  
          /**
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/settings/ReaderPagedView.kt b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/settings/ReaderPagedView.kt
+index dcf3093..01f5616 100644
+--- a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/settings/ReaderPagedView.kt
++++ b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/settings/ReaderPagedView.kt
+@@ -44,6 +44,7 @@ class ReaderPagedView
+                 pageTransitions.bindToPreference(preferences.pageTransitions())
+                 pagerNav.bindToPreference(preferences.navigationModePager())
+                 pagerInvert.bindToPreference(preferences.pagerNavInverted())
++                pagerInvertDouble.bindToPreference(preferences.pagerNavInvertedDouble())
+                 extendPastCutout.bindToPreference(preferences.pagerCutoutBehavior())
+                 extendPastCutoutLandscape.bindToPreference(preferences.landscapeCutoutBehavior()) {
+                     needsActivityRecreate = true
+@@ -105,6 +106,7 @@ class ReaderPagedView
+                 binding.pageTransitions,
+                 binding.pagerNav,
+                 binding.pagerInvert,
++                binding.pagerInvertDouble,
+                 binding.pageLayout,
+                 binding.landscapeZoom,
+                 binding.navigatePan,
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/pager/PagerConfig.kt b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/pager/PagerConfig.kt
+index fa17351..e8e8931 100644
+--- a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/pager/PagerConfig.kt
++++ b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/pager/PagerConfig.kt
+@@ -70,6 +70,15 @@ class PagerConfig(
+ 
+     var splitPages = preferences.pageLayout().get() == PageLayout.SPLIT_PAGES.value
+     var autoSplitPages = preferences.automaticSplitsPage().get()
++    private var singlePageTapInversion = preferences.pagerNavInverted().get()
++    private var doublePageTapInversion = preferences.pagerNavInvertedDouble().get()
++    private var showingDoublePage = false
++
++    fun updateTapInversion(hasExtraPage: Boolean) {
++        showingDoublePage = hasExtraPage
++        tappingInverted = if (hasExtraPage) doublePageTapInversion else singlePageTapInversion
++        navigator.invertMode = tappingInverted
++    }
+ 
+     init {
+         preferences.pageTransitions().register({ usePageTransitions = it })
+@@ -87,10 +96,15 @@ class PagerConfig(
+         preferences
+             .pagerNavInverted()
+             .register(
+-                { tappingInverted = it },
+-                {
+-                    navigator.invertMode = it
+-                },
++                { singlePageTapInversion = it },
++                { updateTapInversion(showingDoublePage) },
++            )
++
++        preferences
++            .pagerNavInvertedDouble()
++            .register(
++                { doublePageTapInversion = it },
++                { updateTapInversion(showingDoublePage) },
+             )
+ 
+         preferences
+@@ -101,6 +115,14 @@ class PagerConfig(
+                 navigationModeInvertedListener?.invoke()
+             }.launchIn(scope)
+ 
++        preferences
++            .pagerNavInvertedDouble()
++            .asFlow()
++            .drop(1)
++            .onEach {
++                navigationModeInvertedListener?.invoke()
++            }.launchIn(scope)
++
+         preferences
+             .pagerCutoutBehavior()
+             .register({ cutoutBehavior = it }, { imagePropertyChangedListener?.invoke() })
 diff --git a/app/src/main/java/eu/kanade/tachiyomi/ui/setting/SettingsReaderController.kt b/app/src/main/java/eu/kanade/tachiyomi/ui/setting/SettingsReaderController.kt
-index 38f6abf..def4b83 100644
+index 38f6abf..f34a8bf 100644
 --- a/app/src/main/java/eu/kanade/tachiyomi/ui/setting/SettingsReaderController.kt
 +++ b/app/src/main/java/eu/kanade/tachiyomi/ui/setting/SettingsReaderController.kt
 @@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.ui.setting
@@ -563,6 +664,34 @@ index 38f6abf..def4b83 100644
              preferenceCategory {
                  titleRes = R.string.reading
  
+@@ -177,7 +300,26 @@ class SettingsReaderController : SettingsController() {
+                 }
+                 listPreference(activity) {
+                     key = Keys.pagerNavInverted
+-                    titleRes = R.string.invert_tapping
++                    titleRes = R.string.invert_tapping_single
++                    entriesRes =
++                        arrayOf(
++                            R.string.none,
++                            R.string.horizontally,
++                            R.string.vertically,
++                            R.string.both_axes,
++                        )
++                    entryValues =
++                        listOf(
++                            ViewerNavigation.TappingInvertMode.NONE.name,
++                            ViewerNavigation.TappingInvertMode.HORIZONTAL.name,
++                            ViewerNavigation.TappingInvertMode.VERTICAL.name,
++                            ViewerNavigation.TappingInvertMode.BOTH.name,
++                        )
++                    defaultValue = ViewerNavigation.TappingInvertMode.NONE.name
++                }
++                listPreference(activity) {
++                    key = Keys.pagerNavInvertedDouble
++                    titleRes = R.string.invert_tapping_double
+                     entriesRes =
+                         arrayOf(
+                             R.string.none,
 diff --git a/app/src/main/res/layout/reader_activity.xml b/app/src/main/res/layout/reader_activity.xml
 index 8f39bd1..71e8a9f 100644
 --- a/app/src/main/res/layout/reader_activity.xml
@@ -598,8 +727,36 @@ index 8f39bd1..71e8a9f 100644
      <eu.kanade.tachiyomi.ui.reader.ReaderColorFilterView
          android:id="@+id/color_overlay"
          android:layout_width="match_parent"
+diff --git a/app/src/main/res/layout/reader_paged_layout.xml b/app/src/main/res/layout/reader_paged_layout.xml
+index 7eddff5..b68bc4d 100644
+--- a/app/src/main/res/layout/reader_paged_layout.xml
++++ b/app/src/main/res/layout/reader_paged_layout.xml
+@@ -30,7 +30,15 @@
+             android:layout_width="match_parent"
+             android:layout_height="wrap_content"
+             android:layout_marginTop="4dp"
+-            app:title="@string/invert_tapping"
++            app:title="@string/invert_tapping_single"
++            android:entries="@array/invert_tapping_mode" />
++
++        <eu.kanade.tachiyomi.widget.MaterialSpinnerView
++            android:id="@+id/pager_invert_double"
++            android:layout_width="match_parent"
++            android:layout_height="wrap_content"
++            android:layout_marginTop="4dp"
++            app:title="@string/invert_tapping_double"
+             android:entries="@array/invert_tapping_mode" />
+ 
+         <eu.kanade.tachiyomi.widget.MaterialSpinnerView
+@@ -192,4 +200,4 @@
+             android:text="@string/invert_double_pages"
+             android:textColor="?attr/colorOnBackground" />
+     </LinearLayout>
+-</eu.kanade.tachiyomi.ui.reader.settings.ReaderPagedView>
+\ No newline at end of file
++</eu.kanade.tachiyomi.ui.reader.settings.ReaderPagedView>
 diff --git a/app/src/main/res/values-ko/strings.xml b/app/src/main/res/values-ko/strings.xml
-index 74f3026..1c0a1c5 100644
+index 74f3026..9110f99 100644
 --- a/app/src/main/res/values-ko/strings.xml
 +++ b/app/src/main/res/values-ko/strings.xml
 @@ -96,6 +96,27 @@
@@ -630,7 +787,16 @@ index 74f3026..1c0a1c5 100644
      <string name="crop_borders">모서리 자르기</string>
      <string name="use_custom_brightness">사용자 정의 밝기 사용</string>
      <string name="use_custom_color_filter">사용자 정의 컬러 필터 사용</string>
-@@ -1046,4 +1067,4 @@
+@@ -345,6 +366,8 @@
+     <string name="always">항상 사용</string>
+     <string name="never">끄기</string>
+     <string name="invert_tapping">탭 영역 반전</string>
++    <string name="invert_tapping_single">탭 영역 반전 · 한 페이지</string>
++    <string name="invert_tapping_double">탭 영역 반전 · 두 페이지</string>
+     <string name="actions">행동</string>
+     <string name="appearance">모양</string>
+     <string name="last_used">마지막으로 사용</string>
+@@ -1046,4 +1069,4 @@
      <string name="ext_installer_summary">안드로이드 12 이하 기기에서 사용자 개입 없이 확장 기능 설치와 업데이트가 가능하도록 합니다</string>
      <string name="save_pages_separately">각각의 폴더에 페이지 저장</string>
      <string name="create_folders_by_manga_title">만화 제목을 따라 폴더 생성</string>
@@ -638,7 +804,7 @@ index 74f3026..1c0a1c5 100644
 \ No newline at end of file
 +</resources>
 diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
-index c77eab3..30f9abb 100644
+index c77eab3..5117ce3 100644
 --- a/app/src/main/res/values/strings.xml
 +++ b/app/src/main/res/values/strings.xml
 @@ -451,6 +451,27 @@
@@ -669,3 +835,12 @@ index c77eab3..30f9abb 100644
      <string name="page_preload_amount">Page preload amount</string>
      <string name="amount_of_pages_to_preload">The amount of pages to preload when reading. Higher values will result in a smoother reading experience, at the cost of higher cache and network usage.</string>
      <string name="invert_double_pages">Invert double pages</string>
+@@ -526,6 +547,8 @@
+     <string name="edge_nav">Edge</string>
+     <string name="right_and_left_nav">Right and Left</string>
+     <string name="invert_tapping">Invert tap zones</string>
++    <string name="invert_tapping_single">Invert tap zones · single page</string>
++    <string name="invert_tapping_double">Invert tap zones · double pages</string>
+     <string name="none">None</string>
+     <string name="horizontally">Horizontally</string>
+     <string name="vertically">Vertically</string>
